@@ -1,20 +1,15 @@
 """
 TAREA · Job de Glue para lecturas de sensores · ESQUELETO
 
-Este archivo está incompleto a propósito. Hay SEIS bloques marcados con TODO
+Este archivo está incompleto a propósito. Hay CUATRO bloques marcados con TODO
 que tienes que escribir tú. El resto ya está hecho.
 
 No copies el job del laboratorio: las reglas aquí son distintas.
 En el laboratorio un número negativo era sospechoso. Aquí, una temperatura
 de -20 grados es exactamente lo que debe salir.
 
-Y hay DOS fuentes: un proveedor manda CSV y el otro manda JSON, con los
-mismos datos pero otros nombres de columna. Tu trabajo es unificarlos
-ANTES de aplicar las reglas.
-
 Argumentos del job:
-    --source_csv        s3://TU-BUCKET/raw/sensores/csv/
-    --source_json       s3://TU-BUCKET/raw/sensores/json/
+    --source_path       s3://TU-BUCKET/raw/sensores/
     --curated_path      s3://TU-BUCKET/curated/sensores/
     --quarantine_path   s3://TU-BUCKET/quarantine/sensores/
     --metrics_path      s3://TU-BUCKET/_metrics/sensores/
@@ -39,8 +34,8 @@ from pyspark.sql.types import (DecimalType, IntegerType, StringType,
 # 0 · Inicialización · YA ESTÁ HECHO
 # ==========================================================================
 ARGS = getResolvedOptions(sys.argv, [
-    "JOB_NAME", "source_csv", "source_json", "curated_path",
-    "quarantine_path", "metrics_path", "process_date",
+    "JOB_NAME", "source_path", "curated_path", "quarantine_path",
+    "metrics_path", "process_date",
 ])
 
 sc = SparkContext.getOrCreate()
@@ -72,63 +67,19 @@ ESQUEMA = StructType([
     # TODO: completa las seis columnas
 ])
 
-df_csv = (
+df_raw = (
     spark.read
     .option("header", "true")
     .option("mode", "PERMISSIVE")
     .schema(ESQUEMA)
-    .csv(ARGS["source_csv"])
-    .withColumn("_origen", F.lit("csv"))
-)
-
-
-# ==========================================================================
-# 1b · TODO · La segunda fuente · el proveedor que manda JSON
-# ==========================================================================
-# El otro proveedor manda LOS MISMOS DATOS, pero con otros nombres:
-#
-#     CSV              JSON
-#     ─────────────    ──────
-#     lectura_id       id
-#     sensor_id        sensor
-#     sucursal         local
-#     fecha_lectura    ts
-#     temperatura_c    temp
-#     humedad_pct      hum
-#
-# Leerlo es fácil:  spark.read.json(ruta)
-#
-#   · El archivo es JSON Lines: un objeto por línea. Spark lo lee así por
-#     defecto. (Si viniera con sangría y corchetes, haría falta
-#     .option("multiLine", "true") — no es el caso aquí.)
-#
-#   · Spark deduce los tipos solo. Comprueba con printSchema() que 'temp'
-#     llegó como número y no como texto.
-#
-# Lo que tienes que hacer:
-#   1. Leer el JSON
-#   2. Renombrar sus columnas para que coincidan con las del CSV
-#      Pista: .withColumnRenamed("id", "lectura_id")  o
-#             .select(F.col("id").alias("lectura_id"), ...)
-#   3. Marcarlo con .withColumn("_origen", F.lit("json"))
-#   4. Unirlo al CSV
-#      Pista: df_csv.unionByName(df_json, allowMissingColumns=True)
-#             unionByName empareja por NOMBRE de columna, no por posición.
-#             Es lo que quieres: union() a secas empareja por orden, y si
-#             los orígenes no coinciden mezcla columnas sin avisar.
-#
-df_json = (
-    # TODO: leer y renombrar
-)
-
-df_raw = (
-    # TODO: unir las dos fuentes
+    .csv(ARGS["source_path"])
+    .withColumn("_archivo_origen", F.input_file_name())
 )
 
 n_leidas = df_raw.count()
 logger.info(f"[sensores] filas leidas: {n_leidas}")
 if n_leidas == 0:
-    raise ValueError("No hay filas en ninguna de las dos fuentes")
+    raise ValueError(f"No hay filas en {ARGS['source_path']}")
 
 
 # ==========================================================================
@@ -156,14 +107,13 @@ df = (
 #    Déjalas todas igual. Pistas: F.trim(), F.upper(), F.regexp_replace()
 #
 # b) FECHA
-#    Ahora vienen TRES formatos mezclados, porque son dos proveedores:
-#        2026-03-21 18:30:00     (del CSV · año-mes-día con espacio)
-#        05/03/2026 07:15:00     (del CSV · día/mes/año)
-#        2026-03-04T11:20:00     (del JSON · con la T en medio)
-#    Conviértelos todos a un solo tipo timestamp.
+#    Vienen DOS formatos mezclados:
+#        2026-03-21 18:30:00     (año-mes-día, con espacio)
+#        05/03/2026 07:15:00     (día/mes/año)
+#    Conviértelos a un solo tipo timestamp.
 #    Pista: F.coalesce() se queda con el primer valor que NO sea nulo,
 #           y F.to_timestamp(columna, "formato") devuelve NULL si no encaja.
-#           Encadena tres to_timestamp dentro de un coalesce.
+#           Encadena dos to_timestamp dentro de un coalesce.
 #
 df = (
     df
@@ -210,7 +160,7 @@ n_cuarentena = df_cuarentena.count()
 # ==========================================================================
 # 5 · Deduplicación · YA ESTÁ HECHO
 # ==========================================================================
-ventana = Window.partitionBy("lectura_id").orderBy(F.col("_origen").desc())
+ventana = Window.partitionBy("lectura_id").orderBy(F.col("_archivo_origen").desc())
 df_limpias = df_limpias.withColumn("_n", F.row_number().over(ventana))
 n_antes = df_limpias.count()
 df_limpias = df_limpias.filter(F.col("_n") == 1).drop("_n")
@@ -268,8 +218,6 @@ if n_cuarentena > 0:
 # CRITICO, alguien tiene que enterarse.
 por_estado = {r["estado_cadena"]: r["n"] for r in
               df_final.groupBy("estado_cadena").agg(F.count("*").alias("n")).collect()}
-por_origen = {r["_origen"]: r["n"] for r in
-              df_final.groupBy("_origen").agg(F.count("*").alias("n")).collect()}
 
 metricas = {
     "job_name": ARGS["JOB_NAME"],
@@ -281,7 +229,6 @@ metricas = {
     "filas_duplicadas": n_duplicadas,
     "filas_escritas": n_final,
     "por_estado": por_estado,
-    "por_origen": por_origen,
 }
 print(json.dumps(metricas, indent=2))
 
