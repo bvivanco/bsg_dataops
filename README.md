@@ -290,9 +290,16 @@ En el rol, pestaña *Permissions*, deben aparecer **dos** políticas:
 
 ### Subir el código
 
+El archivo es **[`job_transacciones.py`](job_transacciones.py)**, y está en este
+mismo repositorio.
+
+> **Cómo descargarlo:** abre el enlace, pulsa el botón **Raw** (arriba a la
+> derecha del código) y guarda la página con `Cmd+S` / `Ctrl+S`.
+> Comprueba que el nombre queda **`job_transacciones.py`**, sin `.txt` al final.
+
 **4.1** Ve a S3 → tu bucket → carpeta `scripts`.
 
-**4.2** **Upload** → **Add files** → elige `job_transacciones.py` → **Upload**.
+**4.2** **Upload** → **Add files** → elige el archivo → **Upload**.
 
 ### Crear el trabajo
 
@@ -343,7 +350,10 @@ por el tuyo:**
 > *"si más del 30% de las filas viene mal, no publico nada"*. Volveremos a él.
 
 **4.7** Vuelve a la pestaña **Script** y pega ahí todo el contenido de
-`job_transacciones.py`.
+**[`job_transacciones.py`](job_transacciones.py)**.
+
+> Ábrelo, pulsa **Raw**, selecciona todo (`Cmd+A` / `Ctrl+A`), copia, y pégalo
+> en el editor de Glue **reemplazando lo que haya**.
 
 **4.8** Pulsa **Save** (arriba a la derecha).
 
