@@ -2,7 +2,7 @@
 # Tu primer pipeline de datos que funciona solo
 
 **Módulo VII · DataOps en Plataformas en la Nube**
-Duración: 90 minutos · Todo se hace en la consola de AWS
+Duración: 90 minutos · Todo se hace en la consola de AWS 
 
 ---
 
