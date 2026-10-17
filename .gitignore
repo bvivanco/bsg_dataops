@@ -27,6 +27,8 @@ aws_credentials
 # Los datos de prueba se generan, no se versionan.
 *.csv
 !ejemplo*.csv
+# Excepción: los datos de la tarea SÍ se versionan, el enunciado enlaza a ellos.
+!tarea/*.csv
 *.parquet
 *.jsonl
 salida*/
