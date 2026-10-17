@@ -625,7 +625,147 @@ Compara con lo que anotaste en la Parte 2:
 
 ---
 
-# Parte 9 · Dejarlo limpio
+# Parte 9 · Consultar los datos con Athena
+
+**15 minutos**
+
+Tus datos están en `curated/`, pero en formato **Parquet**: si abres el archivo
+no entiendes nada. Está pensado para que lo lea una máquina, no una persona.
+
+**Athena** te deja consultarlos con SQL normal, sin montar ninguna base de datos.
+
+---
+
+## 9.1 · Decirle a Athena dónde guardar sus resultados
+
+Athena necesita una carpeta para dejar el resultado de cada consulta. **La
+primera vez te lo pide.**
+
+**9.1.1** En el buscador escribe **Athena** y entra.
+
+**9.1.2** Si te aparece una pantalla de bienvenida, pulsa
+**Explore the query editor**.
+
+**9.1.3** Arriba verás un aviso naranja: *"Before you run your first query..."*.
+Pulsa **Edit settings** (o pestaña **Settings** → **Manage**).
+
+**9.1.4** En *Location of query result* escribe, con **tu** bucket:
+
+```
+s3://transacciones-bvs-01/athena-resultados/
+```
+
+**9.1.5** Pulsa **Save**.
+
+> Athena no guarda nada: cada consulta escribe su resultado en esa carpeta.
+> Por eso hay que decírselo una vez.
+
+---
+
+## 9.2 · Crear el catálogo con un rastreador
+
+Athena no sabe qué hay en `curated/`. Hay que decírselo, y para eso existe un
+**crawler** (rastreador): mira los archivos, deduce las columnas y crea una
+tabla.
+
+**9.2.1** En el buscador escribe **Glue** y entra.
+
+**9.2.2** Menú izquierdo → **Crawlers** → botón **Create crawler**.
+
+**9.2.3** *Name*: `rastreador-transacciones` → **Next**.
+
+**9.2.4** **Add a data source**:
+
+| Campo | Qué poner |
+|---|---|
+| Data source | **S3** |
+| S3 path | pulsa **Browse S3** y elige tu bucket → `curated` → `transacciones` |
+
+Pulsa **Add an S3 data source** → **Next**.
+
+**9.2.5** *IAM role*: elige **`RolGlueTransacciones`**, el que creaste en la
+Parte 3 → **Next**.
+
+**9.2.6** *Target database*: pulsa **Add database**. Se abre otra pestaña:
+nombre `bsg_demo` → **Create database**. Vuelve a la pestaña del rastreador,
+pulsa el icono de refrescar y elige `bsg_demo` → **Next**.
+
+**9.2.7** Revisa y pulsa **Create crawler**.
+
+**9.2.8** En la lista, marca tu rastreador y pulsa **Run**.
+
+Tarda **1 o 2 minutos**. Cuando el estado pase a **Completed**, verás
+*Tables changed: 1*.
+
+> ⚠️ Un rastreador cobra por minuto, **con un mínimo de 10 minutos** por
+> ejecución. No lo programes para que corra solo: lánzalo a mano cuando lo
+> necesites.
+
+---
+
+## 9.3 · Consultar
+
+Vuelve a **Athena** → **Query editor**.
+
+A la izquierda, en *Database*, elige **`bsg_demo`**. Debajo verás una tabla
+llamada `transacciones`.
+
+### Consulta 1 · ¿Qué hay?
+
+```sql
+SELECT * FROM bsg_demo.transacciones;
+```
+
+Pulsa **Run**. Deben salir **2 filas**: `TRX-001` y `TRX-002`.
+
+### Consulta 2 · El total
+
+```sql
+SELECT COUNT(*) AS filas,
+       ROUND(SUM(amount), 2) AS monto_total
+FROM bsg_demo.transacciones;
+```
+
+| filas | monto_total |
+|---|---|
+| 2 | 240.40 |
+
+### Consulta 3 · Comprobar que la limpieza funcionó
+
+```sql
+SELECT COUNT(*) AS importes_malos
+FROM bsg_demo.transacciones
+WHERE amount <= 0 OR amount IS NULL;
+```
+
+Debe dar **0**. Si da otra cosa, algo se coló.
+
+### ✅ Punto de control
+
+Las tres consultas funcionan y la tercera da cero.
+
+---
+
+## 9.4 · Mira lo que costó la consulta
+
+Debajo del resultado, Athena te dice algo como:
+
+```
+Time in queue: 0.1 sec   Run time: 0.9 sec   Data scanned: 1.2 KB
+```
+
+> **Athena cobra por bytes leídos**, no por consulta ni por tiempo.
+>
+> Fíjate en que escaneó poco. Es porque Parquet es **columnar**: si pides dos
+> columnas, solo lee esas dos, no la fila entera. Con tus siete filas da igual,
+> pero cuando sean mil millones **esa diferencia es toda la factura**.
+>
+> Prueba a comparar: ejecuta `SELECT COUNT(*)` y luego `SELECT *`.
+> Mira los bytes escaneados de cada una.
+
+---
+
+# Parte 10 · Dejarlo limpio
 
 **5 minutos**
 
@@ -643,6 +783,8 @@ Lambda → `disparar-transacciones` → en el diagrama, clic en **S3** → **Del
 | La función | Lambda → marcarla → *Actions → Delete* |
 | El trabajo | Glue → *ETL jobs* → marcarlo → *Actions → Delete job* |
 | Los archivos | S3 → entrar al bucket → marcar todo → *Delete* |
+| El rastreador | Glue → *Crawlers* → marcarlo → *Delete* |
+| La base del catálogo | Glue → *Databases* → `bsg_demo` → *Delete* |
 | El bucket | S3 → marcarlo → *Delete* (tiene que estar vacío) |
 
 ### Lo que puedes dejar sin problema
