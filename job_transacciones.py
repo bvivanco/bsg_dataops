@@ -33,7 +33,7 @@ from pyspark.context import SparkContext
 from pyspark.sql import Window
 from pyspark.sql import functions as F
 from pyspark.sql.types import (DecimalType, StringType, StructField,
-                               StructType, TimestampType)
+                               StructType)
 
 # ==========================================================================
 # 0 · Inicialización
@@ -67,14 +67,14 @@ logger.info(f"[transacciones] inicio · process_date={ARGS['process_date']}")
 #
 # decimal(18,2) y no double: el punto flotante binario no representa exacto
 # 0.1 ni 19.99. Para dinero eso no es aceptable.
+# IMPORTANTE: el esquema tiene que coincidir con las columnas REALES del CSV.
+# Si declaras columnas que el archivo no trae, Spark las rellena con NULL —
+# y si alguna de esas participa en una regla de rechazo, se rechaza TODO
+# sin que el mensaje de error te diga por qué.
 ESQUEMA = StructType([
     StructField("transaction_id", StringType(),       True),
     StructField("customer_id",    StringType(),       True),
     StructField("amount",         DecimalType(18, 2), True),
-    StructField("currency",       StringType(),       True),
-    StructField("transaction_ts", TimestampType(),    True),
-    StructField("channel",        StringType(),       True),
-    StructField("status",         StringType(),       True),
 ])
 
 df_raw = (
@@ -112,9 +112,6 @@ df = (
     df_raw
     .withColumn("transaction_id", vacio_a_null(F.col("transaction_id")))
     .withColumn("customer_id",    vacio_a_null(F.col("customer_id")))
-    .withColumn("currency",       F.upper(vacio_a_null(F.col("currency"))))
-    .withColumn("status",         F.upper(vacio_a_null(F.col("status"))))
-    .withColumn("channel",        F.lower(vacio_a_null(F.col("channel"))))
 )
 
 
@@ -133,9 +130,8 @@ df = (
 # Lo deja visible para que alguien lo decida.
 
 ES_RECHAZO = (
-    F.col("transaction_id").isNull()        # sin PK no hay nada que hacer
+    F.col("transaction_id").isNull()        # sin identificador no sirve de nada
     | F.col("customer_id").isNull()         # no se puede atribuir a nadie
-    | F.col("transaction_ts").isNull()      # no se puede ubicar en el tiempo
 )
 
 REGLAS_CUARENTENA = {
@@ -148,7 +144,6 @@ REGLAS_CUARENTENA = {
     "importe_no_positivo": F.col("amount") <= 0,
     # Ajusta este tope al contrato real con el origen.
     "importe_fuera_rango": F.col("amount") > F.lit(1_000_000),
-    "moneda_desconocida": ~F.col("currency").isin("PEN", "USD", "EUR"),
 }
 
 motivo = F.lit(None).cast(StringType())
@@ -183,9 +178,10 @@ n_cuarentena = df_cuarentena.count()
 # Aquí: la clave es transaction_id solo, y se elige la fila más reciente.
 # Si no tienes un criterio de recencia, usa el que tenga sentido de negocio,
 # pero que sea EXPLÍCITO.
+# Sin una columna de fecha en el origen, el criterio de recencia es el archivo.
+# Si tu CSV trae marca de tiempo, ordena por ella: es mejor criterio.
 ventana = Window.partitionBy("transaction_id").orderBy(
-    F.col("transaction_ts").desc_nulls_last(),
-    F.col("_archivo_origen").desc(),        # desempate estable
+    F.col("_archivo_origen").desc(),
 )
 
 df_limpias = (
@@ -225,7 +221,7 @@ if n_id_ambiguos:
 # ==========================================================================
 df_final = (
     df_limpias
-    .withColumn("transaction_date", F.to_date("transaction_ts"))
+    .withColumn("transaction_date", F.to_date(F.lit(ARGS["process_date"])))
     .withColumn("_ingested_at", F.current_timestamp())
     .withColumn("_process_date", F.lit(ARGS["process_date"]))
     .drop("_motivo_cuarentena")

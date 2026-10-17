@@ -143,10 +143,10 @@ Abre un editor de texto y escribe exactamente esto:
 ```
 transaction_id,customer_id,amount
 TRX-001,CUST-100,150.50
+TRX-001,CUST-100,150.50
 TRX-002,CUST-101,89.90
 TRX-003,CUST-102,0
 TRX-004,,45.00
-TRX-005,CUST-103,-20.00
 TRX-005,CUST-103,-20.00
 TRX-006,CUST-104,abc
 ```
@@ -166,12 +166,14 @@ Ese archivo tiene **errores a propósito**. Búscalos:
 
 | Fila | Qué tiene de raro |
 |---|---|
+| `TRX-001` | Aparece **dos veces**, idéntica |
 | `TRX-003` | El importe es **cero** |
 | `TRX-004` | **No tiene cliente** |
-| `TRX-005` | Importe **negativo**... y está **repetida** |
+| `TRX-005` | El importe es **negativo** |
 | `TRX-006` | Donde va un número, dice `abc` |
 
-Son siete filas, y solo **dos** están bien. Apúntalo: lo vas a comprobar al final.
+Son siete filas. **Solo dos van a salir publicadas.** Apúntalo: lo vas a
+comprobar al final.
 
 ### Subirlo
 
@@ -570,6 +572,7 @@ S3 → `_metrics` → `transacciones` → entra en la carpeta → marca `metrics
   "filas_leidas": 7,
   "filas_rechazadas": 1,
   "filas_cuarentena": 3,
+  "filas_duplicadas": 1,
   "filas_escritas": 2,
   "tasa_rechazo_pct": 14.286
 }
@@ -579,12 +582,20 @@ S3 → `_metrics` → `transacciones` → entra en la carpeta → marca `metrics
 
 Compara con lo que anotaste en la Parte 2:
 
-| | Cuál | Por qué |
+| | Cuál | Qué pasó |
 |---|---|---|
-| **Rechazada** (1) | `TRX-004` | No tiene cliente: no sirve para nada |
-| **En cuarentena** (3) | `TRX-003`, `TRX-005`, `TRX-006` | Cero, negativo, y texto |
-| **Repetida** | la segunda `TRX-005` | Se eliminó |
+| **Rechazada** (1) | `TRX-004` | Sin cliente: no se puede atribuir a nadie. **Se descarta** |
+| **En cuarentena** (3) | `TRX-003`, `TRX-005`, `TRX-006` | Cero, negativo y texto. **Se guardan para revisar** |
+| **Duplicada** (1) | la segunda `TRX-001` | Era válida, pero repetida. **Se quedó una** |
 | **Publicadas** (2) | `TRX-001`, `TRX-002` | Las buenas |
+
+> **Fíjate en la diferencia entre las tres primeras filas de esta tabla.**
+>
+> La **rechazada** se tira: sin cliente no sirve ni para investigar.
+> Las de **cuarentena** se guardan: un importe negativo puede ser un error...
+> o una devolución real que alguien tiene que mirar.
+> La **duplicada** se elimina, pero el pipeline **cuenta cuántas eran**. Si ese
+> número empieza a crecer, el problema está en el origen, no en tu código.
 
 > **Fíjate en una cosa: no entraste a mirar la consola de Glue para saber todo
 > esto. El pipeline te lo contó.**
