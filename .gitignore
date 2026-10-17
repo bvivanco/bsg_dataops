@@ -1,0 +1,38 @@
+# ─── macOS ───────────────────────────────────────────────────────────
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# ─── Python ──────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+venv/
+.venv/
+env/
+*.egg-info/
+
+# ─── Credenciales · NUNCA subir ──────────────────────────────────────
+# Si alguna de estas llega a GitHub, hay que rotarla: queda en el
+# historial aunque borres el archivo después.
+.env
+*.pem
+*.key
+credentials
+*-credentials.json
+service-account*.json
+aws_credentials
+
+# ─── Datos ───────────────────────────────────────────────────────────
+# Los datos de prueba se generan, no se versionan.
+*.csv
+!ejemplo*.csv
+*.parquet
+*.jsonl
+salida*/
+_raw_local/
+
+# ─── Editores ────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
